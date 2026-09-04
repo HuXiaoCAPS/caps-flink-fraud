@@ -25,9 +25,13 @@
     <div class="panel">
       <h2>规则管理（热更新，无需重启作业）</h2>
       <div class="rule-form">
-        <label>阈值(元)<input type="number" id="r-threshold" value="900" min="1" step="50"></label>
-        <label>窗口(秒)<input type="number" id="r-window" value="30" min="1" max="120"></label>
-        <label>规则名<input type="text" id="r-name" value="连续大额交易"></label>
+        <label>规则
+          <select id="r-select"></select>
+        </label>
+        <label>阈值(元)<input type="number" id="r-threshold" min="1" step="50"></label>
+        <label>窗口(秒)<input type="number" id="r-window" min="1" max="120"></label>
+        <label>规则名<input type="text" id="r-name"></label>
+        <label>权重<input type="number" id="r-weight" min="0" step="0.1"></label>
         <label>启用<input type="checkbox" id="r-enabled" checked></label>
         <div class="rule-btns">
           <button id="btn-apply" class="primary">更新规则</button>
@@ -35,7 +39,8 @@
           <button id="btn-enable">启用</button>
         </div>
       </div>
-      <div class="rule-status" id="rule-status">当前规则：-</div>
+      <div class="rule-status" id="rule-status">选择规则后编辑参数，点击「更新规则」下发</div>
+      <div class="rule-list" id="rule-list"></div>
     </div>
     <div class="panel">
       <h2>告警端到端延迟（近 30 分钟）</h2>

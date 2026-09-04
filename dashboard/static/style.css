@@ -124,6 +124,20 @@ table td.detail { color: #ffa05c; }
   font-size: 13px;
   color: #ffd08a;
   min-height: 18px;
+  margin-bottom: 10px;
+}
+.rule-list { font-size: 12px; }
+.rule-list table { width: 100%; }
+.rule-list td.ok { color: #4ade80; }
+.rule-list td.wait { color: #ffd08a; }
+.rule-list td.off { color: #8aa0bd; }
+.rule-form select {
+  background: #0b1220;
+  border: 1px solid #2a3a55;
+  color: #e6edf3;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
 }
 .latency-stats {
   font-size: 13px;

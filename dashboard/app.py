@@ -22,6 +22,43 @@ KAFKA_BOOTSTRAP = "localhost:9092"
 RULE_TOPIC = "rule_topic"
 _rule_versions = {}
 
+DEFAULT_RULES = [
+    {"rule_id": "R001", "rule_name": "连续大额交易", "rule_type": "CONSECUTIVE_HIGH_AMOUNT",
+     "threshold": 900.0, "window_ms": 30000, "enabled": True, "weight": 0.6, "version": 1},
+    {"rule_id": "R002", "rule_name": "单笔大额交易", "rule_type": "SINGLE_HIGH_AMOUNT",
+     "threshold": 2000.0, "window_ms": 30000, "enabled": True, "weight": 0.4, "version": 1},
+    {"rule_id": "R003", "rule_name": "连续超高额交易", "rule_type": "CONSECUTIVE_HIGH_AMOUNT",
+     "threshold": 2000.0, "window_ms": 30000, "enabled": True, "weight": 0.8, "version": 1},
+]
+
+
+def load_rules_from_kafka():
+    """从 rule_topic 历史重建当前规则（与 Flink 广播状态一致：earliest + 后者覆盖）。"""
+    import json as _json
+    from kafka import KafkaConsumer
+    import uuid
+    rules = {}
+    try:
+        consumer = KafkaConsumer(
+            RULE_TOPIC,
+            bootstrap_servers=KAFKA_BOOTSTRAP,
+            group_id="dashboard-rules-" + uuid.uuid4().hex[:8],
+            auto_offset_reset="earliest",
+            enable_auto_commit=False,
+            consumer_timeout_ms=2000,
+            value_deserializer=lambda m: _json.loads(m.decode("utf-8")))
+        for msg in consumer:
+            rules[msg.value["rule_id"]] = msg.value
+        consumer.close()
+    except Exception as e:
+        print("[warn] 读取 rule_topic 失败，使用默认规则:", e)
+    return rules
+
+
+RULE_STORE = load_rules_from_kafka() or {r["rule_id"]: r for r in DEFAULT_RULES}
+for r in DEFAULT_RULES:
+    RULE_STORE.setdefault(r["rule_id"], r)
+
 
 def fetch(sql, args=None):
     conn = pymysql.connect(**DORIS)
@@ -166,22 +203,30 @@ def api_latency():
     return jsonify({"stats": stats, "labels": labels, "values": values})
 
 
+@app.route("/api/rules/current")
+def api_rules_current():
+    """当前生效规则（dashboard 管理视角，与 Flink 广播状态一致）。"""
+    return jsonify(list(RULE_STORE.values()))
+
+
 @app.route("/api/rule", methods=["POST"])
 def api_rule():
     """网页端规则热更新入口：将规则发送到 rule_topic。"""
     data = request.get_json(force=True) or {}
     rule_id = data.get("rule_id", "R001")
+    if rule_id not in RULE_STORE:
+        RULE_STORE[rule_id] = dict(rule_id=rule_id)
     version = _rule_versions.get(rule_id, 0) + 1
     _rule_versions[rule_id] = version
     rule = {
         "rule_id": rule_id,
-        "rule_name": data.get("rule_name", "连续大额交易"),
-        "rule_type": data.get("rule_type", "CONSECUTIVE_HIGH_AMOUNT"),
-        "threshold": float(data.get("threshold", 900)),
-        "window_ms": int(data.get("window_ms", 30000)),
-        "enabled": bool(data.get("enabled", True)),
+        "rule_name": data.get("rule_name", RULE_STORE[rule_id].get("rule_name", "未命名规则")),
+        "rule_type": data.get("rule_type", RULE_STORE[rule_id].get("rule_type", "CONSECUTIVE_HIGH_AMOUNT")),
+        "threshold": float(data.get("threshold", RULE_STORE[rule_id].get("threshold", 900))),
+        "window_ms": int(data.get("window_ms", RULE_STORE[rule_id].get("window_ms", 30000))),
+        "enabled": bool(data.get("enabled", RULE_STORE[rule_id].get("enabled", True))),
         "version": version,
-        "weight": float(data.get("weight", 0.5)),
+        "weight": float(data.get("weight", RULE_STORE[rule_id].get("weight", 0.5))),
     }
     import json
     from kafka import KafkaProducer
@@ -194,6 +239,7 @@ def api_rule():
     producer.send(RULE_TOPIC, key=rule["rule_id"], value=rule)
     producer.flush()
     producer.close(timeout=5)
+    RULE_STORE[rule_id] = rule
     return jsonify({"ok": True, "rule": rule})
 
 

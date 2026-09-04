@@ -131,11 +131,20 @@ def main():
     parser.add_argument("--rate", type=float, default=2.0, help="每秒产生事件数 (default: 2)")
     parser.add_argument("--anomaly-rate", type=float, default=0.04, help="异常注入比例 (default: 0.04)")
     parser.add_argument("--delay-prob", type=float, default=0.30, help="乱序注入比例 (default: 0.30)")
+    parser.add_argument("--burst-interval", type=str, default="8-18",
+                        help="爆发间隔秒数区间 min-max (default: 8-18，如 2-5 则更密)")
     parser.add_argument("--duration", type=float, default=0, help="运行秒数，0 表示一直运行")
     args = parser.parse_args()
 
+    try:
+        burst_lo, burst_hi = (float(x) for x in args.burst_interval.split("-"))
+    except ValueError:
+        parser.error("--burst-interval 需为 min-max 格式，如 2-5")
+    burst_lo, burst_hi = max(burst_lo, 0.2), max(burst_hi, burst_lo)
+
     print(f"[init] Kafka={KAFKA_BOOTSTRAP_SERVERS} topic={ORDER_TOPIC} "
-          f"rate={args.rate}/s anomaly={args.anomaly_rate:.0%} delay={args.delay_prob:.0%}")
+          f"rate={args.rate}/s anomaly={args.anomaly_rate:.0%} delay={args.delay_prob:.0%} "
+          f"burst={burst_lo}-{burst_hi}s")
 
     producer = KafkaProducer(
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
@@ -149,7 +158,7 @@ def main():
 
     sim = TransactionSimulator(anomaly_rate=args.anomaly_rate, delay_prob=args.delay_prob)
     interval = 1.0 / max(args.rate, 0.1)
-    next_burst_at = time.time() + random.uniform(6, 12)
+    next_burst_at = time.time() + random.uniform(burst_lo, burst_hi)
     last_log = time.time()
     start = time.time()
 
@@ -161,7 +170,7 @@ def main():
 
             if now >= next_burst_at:
                 sim.schedule_burst(now)
-                next_burst_at = now + random.uniform(8, 18)
+                next_burst_at = now + random.uniform(burst_lo, burst_hi)
                 producer.flush()
 
             if now - last_log >= 10:

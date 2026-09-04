@@ -98,13 +98,74 @@ function updateLatency(data) {
   });
 }
 
+// ---------- 规则管理 ----------
+let rulesMap = {};            // rule_id -> rule（当前配置）
+let sentRules = {};           // rule_id -> {rule, sentAt}（等待/已确认生效）
+let selectedRuleId = null;
+
+function fillRuleForm(rule) {
+  document.getElementById('r-threshold').value = rule.threshold;
+  document.getElementById('r-window').value = Math.round(rule.window_ms / 1000);
+  document.getElementById('r-name').value = rule.rule_name;
+  document.getElementById('r-weight').value = rule.weight;
+  document.getElementById('r-enabled').checked = !!rule.enabled;
+}
+
+function populateRuleSelect() {
+  const sel = document.getElementById('r-select');
+  const ids = Object.keys(rulesMap);
+  if (ids.length === 0) return;
+  sel.innerHTML = ids.map(id =>
+    `<option value="${id}">${id} · ${rulesMap[id].rule_name}</option>`).join('');
+  if (!selectedRuleId || !rulesMap[selectedRuleId]) selectedRuleId = ids[0];
+  sel.value = selectedRuleId;
+  fillRuleForm(rulesMap[selectedRuleId]);
+}
+
+document.getElementById('r-select').addEventListener('change', (e) => {
+  selectedRuleId = e.target.value;
+  fillRuleForm(rulesMap[selectedRuleId]);
+});
+
+function renderRuleList() {
+  const rows = Object.values(rulesMap).map(r => {
+    const sent = sentRules[r.rule_id];
+    let status, cls = '';
+    if (sent && sent.applied) { status = '已生效 ✓'; cls = 'ok'; }
+    else if (sent) { status = '已发送，等待生效…'; cls = 'wait'; }
+    else { status = r.enabled ? '生效中' : '已停用'; cls = r.enabled ? 'ok' : 'off'; }
+    return `<tr><td>${r.rule_id}</td><td>${r.rule_name}</td>
+      <td>${r.threshold}</td><td>${Math.round(r.window_ms / 1000)}s</td>
+      <td>${r.enabled ? '启用' : '停用'}</td><td>${r.weight}</td>
+      <td class="${cls}">${status}</td></tr>`;
+  }).join('');
+  document.getElementById('rule-list').innerHTML =
+    `<table><thead><tr><th>ID</th><th>规则名</th><th>阈值</th><th>窗口</th><th>状态</th><th>权重</th><th>广播状态</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function markAppliedFromAlerts(alerts) {
+  // 用最新告警确认广播已生效：出现 rule_id 相同且时间晚于发送时刻的告警即视为生效
+  const now = new Date();
+  for (const a of alerts) {
+    const sent = sentRules[a.rule_id];
+    if (!sent || sent.applied) continue;
+    const t = new Date(a.trigger_time.replace(' ', 'T'));
+    if (t >= sent.sentAt && (now - sent.sentAt) < 120000) {
+      sent.applied = true;
+    }
+  }
+  renderRuleList();
+}
+
 async function applyRule(overrides) {
+  const id = selectedRuleId || (Object.keys(rulesMap)[0] || 'R001');
   const body = {
-    rule_id: 'R001',
-    rule_name: document.getElementById('r-name').value || '连续大额交易',
-    rule_type: 'CONSECUTIVE_HIGH_AMOUNT',
-    threshold: parseFloat(document.getElementById('r-threshold').value) || 900,
+    rule_id: id,
+    rule_name: document.getElementById('r-name').value || rulesMap[id]?.rule_name,
+    rule_type: rulesMap[id]?.rule_type || 'CONSECUTIVE_HIGH_AMOUNT',
+    threshold: parseFloat(document.getElementById('r-threshold').value) || 0,
     window_ms: (parseInt(document.getElementById('r-window').value, 10) || 30) * 1000,
+    weight: parseFloat(document.getElementById('r-weight').value) || 0.5,
     enabled: document.getElementById('r-enabled').checked,
   };
   Object.assign(body, overrides);
@@ -117,10 +178,13 @@ async function applyRule(overrides) {
     const data = await res.json();
     if (data.ok) {
       const r = data.rule;
+      rulesMap[r.rule_id] = r;
+      sentRules[r.rule_id] = { rule: r, sentAt: new Date(), applied: false };
       const state = r.enabled ? '启用' : '停用';
       document.getElementById('rule-status').textContent =
-        `已${state}：${r.rule_name} 阈值=${r.threshold}元 窗口=${r.window_ms / 1000}s` +
-        ` v${r.version} @ ${new Date().toLocaleTimeString()}（等待广播生效...）`;
+        `已下发 ${r.rule_name}(${r.rule_id}) v${r.version} 阈值=${r.threshold} ` +
+        `窗口=${r.window_ms / 1000}s ${state} —— 等待 Flink 广播生效（约数秒后由新告警确认）`;
+      renderRuleList();
     } else {
       document.getElementById('rule-status').textContent = '发送失败: ' + JSON.stringify(data);
     }
@@ -135,13 +199,14 @@ document.getElementById('btn-enable').addEventListener('click', () => applyRule(
 
 async function refresh() {
   try {
-    const [stats, trend, cities, rules, latest, latency] = await Promise.all([
+    const [stats, trend, cities, rules, latest, latency, rulesCur] = await Promise.all([
       fetch('/api/stats').then(r => r.json()),
       fetch('/api/trend').then(r => r.json()),
       fetch('/api/cities').then(r => r.json()),
       fetch('/api/rules').then(r => r.json()),
       fetch('/api/latest').then(r => r.json()),
       fetch('/api/latency').then(r => r.json()),
+      fetch('/api/rules/current').then(r => r.json()),
     ]);
     updateStats(stats);
     updateTrend(trend);
@@ -149,6 +214,11 @@ async function refresh() {
     updateRules(rules);
     updateTable(latest);
     updateLatency(latency);
+
+    // 规则面板：合并后端配置（含别处下发的版本）
+    rulesCur.forEach(r => { rulesMap[r.rule_id] = r; });
+    populateRuleSelect();
+    markAppliedFromAlerts(latest);
   } catch (e) {
     console.error('刷新失败', e);
   }
