@@ -29,6 +29,7 @@ def build_rule(args) -> dict:
         "window_ms": args.window_ms,
         "enabled": not args.disable,
         "version": args.version,
+        "weight": args.weight,
     }
 
 
@@ -40,6 +41,7 @@ def main():
     parser.add_argument("--threshold", type=float, default=900.0)
     parser.add_argument("--window-ms", type=int, default=30000)
     parser.add_argument("--disable", action="store_true", help="停用规则")
+    parser.add_argument("--weight", type=float, default=0.5, help="规则权重(风险评分)")
     parser.add_argument("--version", type=int, default=2)
     args = parser.parse_args()
 

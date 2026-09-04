@@ -73,6 +73,7 @@ function updateTable(alerts) {
       <td><span class="risk-tag">${a.rule_name}</span></td>
       <td>${a.user_id}</td>
       <td>${Number(a.total_amount).toFixed(2)}</td>
+      <td style="color:#ffd08a;font-weight:600">${Number(a.risk_score).toFixed(2)}</td>
       <td>${a.city}</td>
       <td class="detail" title="${a.detail}">${a.detail}</td>
     </tr>`).join('');

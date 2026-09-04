@@ -34,6 +34,9 @@ public class Rule implements Serializable {
     @JsonProperty("version")
     private int version;
 
+    @JsonProperty("weight")
+    private double weight = 0.5;
+
     public Rule() {
     }
 
@@ -91,6 +94,14 @@ public class Rule implements Serializable {
 
     public void setVersion(int version) {
         this.version = version;
+    }
+
+    public double getWeight() {
+        return weight;
+    }
+
+    public void setWeight(double weight) {
+        this.weight = weight;
     }
 
     @Override

@@ -17,6 +17,9 @@ public class RiskAlert {
     private String triggerTime;
     private String detail;
 
+    /** 风险评分：命中的所有规则权重之和 */
+    private double riskScore;
+
     // CEP 候选匹配的原始信息，供 DynamicRuleProcessor 按最新规则判定
     private double firstAmount;
     private double secondAmount;
@@ -112,6 +115,14 @@ public class RiskAlert {
 
     public void setDetail(String detail) {
         this.detail = detail;
+    }
+
+    public double getRiskScore() {
+        return riskScore;
+    }
+
+    public void setRiskScore(double riskScore) {
+        this.riskScore = riskScore;
     }
 
     public double getFirstAmount() {

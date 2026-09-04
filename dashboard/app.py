@@ -121,8 +121,8 @@ def api_rules():
 @app.route("/api/latest")
 def api_latest():
     rows = fetch("SELECT rule_id, rule_name, user_id, order_ids, total_amount, "
-                 "city, risk_type, trigger_time, detail FROM " + ALERTS_TABLE
-                 + " ORDER BY id DESC LIMIT 20")
+                 "city, risk_type, risk_score, trigger_time, detail FROM " + ALERTS_TABLE
+                 + " ORDER BY trigger_time DESC LIMIT 20")
     return jsonify(rows)
 
 
@@ -181,6 +181,7 @@ def api_rule():
         "window_ms": int(data.get("window_ms", 30000)),
         "enabled": bool(data.get("enabled", True)),
         "version": version,
+        "weight": float(data.get("weight", 0.5)),
     }
     import json
     from kafka import KafkaProducer

@@ -99,7 +99,7 @@ public class FraudDetectionJob {
 
         PatternStream<Transaction> patternStream = CEP.pattern(keyed, pattern);
 
-        DataStream<RiskAlert> candidates = patternStream.select(
+        DataStream<RiskAlert> pairCandidates = patternStream.select(
                 new PatternSelectFunction<Transaction, RiskAlert>() {
                     @Override
                     public RiskAlert select(Map<String, List<Transaction>> match) {
@@ -119,6 +119,23 @@ public class FraudDetectionJob {
                         return candidate;
                     }
                 });
+
+        // 单笔交易候选流：供 SINGLE_HIGH_AMOUNT 类规则判定
+        DataStream<RiskAlert> singleCandidates = timed.map(tx -> {
+            RiskAlert candidate = new RiskAlert();
+            candidate.setUserId(tx.getUserId());
+            candidate.setOrderIds(tx.getOrderId());
+            candidate.setTotalAmount(tx.getAmount());
+            candidate.setCity(tx.getCity());
+            candidate.setRiskType("SINGLE_HIGH_AMOUNT");
+            candidate.setFirstAmount(tx.getAmount());
+            candidate.setSecondAmount(0);
+            candidate.setWindowStartTs(tx.getEventTs());
+            candidate.setWindowEndTs(tx.getEventTs());
+            return candidate;
+        });
+
+        DataStream<RiskAlert> candidates = pairCandidates.union(singleCandidates);
 
         // ============ 3. 规则流：Kafka(rule_topic) -> Broadcast State ============
         KafkaSource<String> ruleSource = KafkaSource.<String>builder()
@@ -154,6 +171,7 @@ public class FraudDetectionJob {
                 String.valueOf(alert.getTotalAmount()),
                 alert.getCity(),
                 alert.getRiskType(),
+                String.valueOf(alert.getRiskScore()),
                 alert.getWindowEnd(),
                 alert.getTriggerTime(),
                 alert.getDetail()));
