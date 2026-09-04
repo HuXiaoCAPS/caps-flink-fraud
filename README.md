@@ -118,14 +118,25 @@ docker run --rm --network pyflink-cep-fraud-detection_default \
 .venv/bin/python tools/rule_producer.py
 ```
 
+**内置 5 类规则模式**（CEP 宽匹配 + 广播状态判定）：
+
+| 规则类型 | CEP 模式 | 判定逻辑 |
+|---|---|---|
+| `SINGLE_HIGH_AMOUNT` | 单笔候选流 | 单笔超阈值 |
+| `CONSECUTIVE_HIGH_AMOUNT` | 连续两笔 | 两笔都超阈值且窗口内 |
+| `SEQUENCE_SMALL_LARGE` | 连续两笔 | 首笔小额试探 + 次笔大额 |
+| `HIGH_FREQUENCY` | 连续三笔 (`next×3`) | 窗口内高频交易 |
+| `IP_CHANGE` | 迭代条件比较 IP | 窗口内 IP/城市切换 |
+
 规则 JSON 契约：
 
 ```json
 {
-  "rule_id": "R001", "rule_name": "连续大额交易",
-  "rule_type": "CONSECUTIVE_HIGH_AMOUNT",
-  "threshold": 900.0, "window_ms": 30000,
-  "enabled": true, "version": 2
+  "rule_id": "R004", "rule_name": "高频交易",
+  "rule_type": "HIGH_FREQUENCY",
+  "threshold": 0, "window_ms": 30000,
+  "count": 3, "small_threshold": 0,
+  "enabled": true, "version": 2, "weight": 0.7
 }
 ```
 
