@@ -174,19 +174,29 @@ docker run --rm --network pyflink-cep-fraud-detection_default \
    pymysql 会对 SQL 做 `%` 格式化，`DATE_FORMAT('%H:%i')` 会报错。
    **方案**：时间分桶改在 Python 侧完成。
 
-## 性能指标（本地 mini-cluster 实测）
+9. **独立集群的槽位与时区**
+   TaskManager 默认 1 槽位，而作业并行度 2 → `NoResourceAvailableException`，
+   作业反复重启。**方案**：`taskmanager.numberOfTaskSlots=2`。
+   另：容器 JVM 默认 UTC 时区，告警时间戳差 8 小时 → 设置 `TZ=Asia/Shanghai`。
+
+## 性能指标（独立集群实测）
 
 | 指标 | 数值 | 说明 |
 |---|---|---|
-| 告警吞吐 | ~4.2 条/分钟 | 数据源 3 条交易/秒，含 VELOCITY_BURST 注入 |
-| 端到端延迟均值 | 10.4s | ≈ watermark 乱序容忍(10s)，符合预期 |
-| 端到端延迟 P95 | 11.0s | |
-| Checkpoint | ~170KB / 3ms | 5s 间隔，开销可忽略 |
-| 单告警状态 | ~34KB | 12 核环境，2 并行度 |
+| 告警吞吐 | ~10.1 条/分钟 | 数据源 3 条交易/秒，3 条规则（R001/R002/R003）同时生效 |
+| 端到端延迟均值 | 7.6s | ≈ watermark 乱序容忍(10s)，符合预期 |
+| 端到端延迟 P50 / P95 / P99 | 8.0 / 11.0 / 11.0s | |
+| Checkpoint | ~104KB / 55ms | 5s 间隔，开销可忽略 |
 
 > 延迟主要由 `forBoundedOutOfOrderness(10s)` 决定：要容忍 10s 乱序，
 > watermark 就滞后 10s，告警至少要等 watermark 越过匹配末尾才发射。
 > 实际生产中可按业务容忍度调整乱序窗口。
+
+## 监控与调试
+
+- **Flink WebUI**：`http://localhost:8081`（作业 DAG、watermark、反压、checkpoint 历史）
+- **告警大屏**：`http://localhost:5001`（实时告警、趋势、城市分布、规则排行、延迟指标、网页端规则热更新）
+- **规则热更新**：大屏"规则管理"面板或 `tools/rule_producer.py`
 
 ## 后续展望（简历可写方向）
 
