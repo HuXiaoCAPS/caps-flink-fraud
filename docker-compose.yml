@@ -76,6 +76,7 @@ services:
       - "6123:6123"
     environment:
       JOB_MANAGER_MEMORY: "1024m"
+      TZ: Asia/Shanghai
       FLINK_PROPERTIES: "jobmanager.rpc.address: flink-jobmanager"
     networks:
       default:
@@ -88,7 +89,10 @@ services:
     restart: unless-stopped
     environment:
       TASK_MANAGER_MEMORY: "2048m"
-      FLINK_PROPERTIES: "jobmanager.rpc.address: flink-jobmanager"
+      TZ: Asia/Shanghai
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
     networks:
       default:
         ipv4_address: 172.28.0.21
