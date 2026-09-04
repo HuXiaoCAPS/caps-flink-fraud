@@ -14,11 +14,12 @@ Kafka ──交易流──▶ Java Flink 作业 ──告警──▶ Doris ─
 
 | 层 | 技术 | 说明 |
 |---|---|---|
-| 流计算核心 | **Java + Flink 1.20 + Flink CEP** | DataStream API，本地 mini-cluster |
-| 消息队列 | Apache Kafka 3.7 (KRaft) | Docker 部署，单 broker |
-| 数据存储 | Apache Doris 2.1.11 (FE+BE) | 告警结果表 `risk.dws_risk_result` |
+| 流计算核心 | **Java + Flink 1.20 + Flink CEP** | DataStream API，容器化部署（compose 网络） |
+| 消息队列 | Apache Kafka 3.7 (KRaft) | Docker 部署，双监听（host 9092 + 容器内 9094） |
+| 数据存储 | Apache Doris 2.1.11 (FE+BE) | 告警表 `risk.dws_risk_result`（UNIQUE KEY 幂等去重） |
+| Doris 写入 | 官方 `flink-doris-connector`（Stream Load） | 替换 JDBC，生产级导入路径 |
 | 数据模拟 | Python Faker + kafka-python | 异常注入 + 乱序注入 |
-| 展示层 | Flask + ECharts 5 | 实时告警大屏，5s 自动刷新 |
+| 展示层 | Flask + ECharts 5 | 实时告警大屏，支持网页端规则热更新 |
 
 > 说明：PyFlink 的 Python API **不提供 CEP 绑定**（1.17~1.20 均无 `pyflink.cep` 模块），
 > 因此核心作业采用 Java 实现，模拟/规则注入/展示等边缘环节用 Python。
@@ -30,6 +31,7 @@ Kafka ──交易流──▶ Java Flink 作业 ──告警──▶ Doris ─
 ├── conf/                       # Doris FE/BE 配置（含 mem_limit 内存限制）
 ├── core/                       # Java 核心模块（Flink 作业）
 │   ├── pom.xml
+│   ├── Dockerfile              # 作业容器镜像（compose 网络内运行）
 │   └── src/main/java/com/fraud/
 │       ├── FraudDetectionJob.java   # 主入口：交易流 + 规则流 + CEP + 广播状态
 │       ├── DynamicRuleProcessor.java # KeyedBroadcastProcessFunction 规则判定
@@ -71,11 +73,18 @@ mvn -f core/pom.xml package
 .venv/bin/python tools/mock_producer.py --rate 3
 ```
 
-### 3. 启动 Flink 作业
+### 3. 构建并启动 Flink 作业（容器化，与 Kafka/Doris 同网络）
 
 ```bash
-java -jar core/target/flink-fraud-detection-core-1.0.0.jar
+mvn -f core/pom.xml package
+docker build -f core/Dockerfile -t caps-fraud-job core/
+docker run -d --name fraud-job \
+    --network pyflink-cep-fraud-detection_default \
+    caps-fraud-job
 ```
+
+> 作业运行在 compose 网络内，可通过服务名访问 Kafka(`kafka:9094`)/Doris(`doris-fe:8030`)。
+> 本机调试也可用 `java -jar core/target/...jar`（环境变量默认走 localhost）。
 
 ### 4. 下发初始规则（广播状态为空时不会有告警）
 
@@ -137,11 +146,25 @@ java -jar core/target/flink-fraud-detection-core-1.0.0.jar
    会把 `mem_limit = 2G` 拼成坏行导致内存限制失效。
    **方案**：be.conf 末尾补换行 + 限制 `mem_limit = 2G`（26G 内存环境）。
 
-5. **JDBC 连接器 API 变动**
+5. **JDBC 连接器 API 变动**（早期 JDBC 方案遗留，现已被 Stream Load 替代）
    flink-connector-jdbc 3.4.0 旧版 `JdbcConnectionOptions.builder()` 已移除，
    新版用 `JdbcSink.builder()` + `new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()`。
 
-6. **pymysql 的 `%` 转义坑**
+6. **Doris Stream Load 的网络可达性**
+   Stream Load 的 FE 会返回 307 重定向，要求客户端**直连 BE 内网地址**
+   （如 `172.28.0.11:8040`）。host 与 docker 桥接网络无路由时必然超时。
+   **方案**：作业容器化，运行在同一 compose 网络内（Stream Load 直连 BE 可达）。
+   由此还引出：Kafka 需配置**双监听**（`localhost:9092` 供 host 客户端 + `kafka:9094` 供容器内作业），
+   否则容器内作业拿到的广告地址是 `localhost` 会连到自己。
+
+7. **Doris 唯一键表 + Stream Load 的隐藏列**
+   Doris 表用 `UNIQUE KEY(rule_id, user_id, window_start)` 实现幂等去重；
+   flink-doris-connector 对 UNIQUE 表默认追加 `__DORIS_DELETE__` 隐藏列
+   （`executionOptions.getDeletable()` 默认 true），需 `setDeletable(false)`，
+   否则 CSV 列数(11) 与预期(12) 不符导致整批被过滤。
+   序列化：`SimpleStringSerializer` 走 CSV，按表列序输出 tab 分隔行。
+
+8. **pymysql 的 `%` 转义坑**
    pymysql 会对 SQL 做 `%` 格式化，`DATE_FORMAT('%H:%i')` 会报错。
    **方案**：时间分桶改在 Python 侧完成。
 
@@ -161,8 +184,9 @@ java -jar core/target/flink-fraud-detection-core-1.0.0.jar
 
 ## 后续展望（简历可写方向）
 
-- Doris 官方 `flink-doris-connector`（Stream Load）替换 JDBC 写入，提升吞吐
+- 开启 flink-doris-connector 的 **2PC**（两阶段提交），从"唯一键幂等"升级为事务级 exactly-once
 - 多规则支持：同一类型规则可配置多条阈值梯度
 - 规则版本管理与灰度（`version` 字段已预留）
-- 独立 Flink 集群（Flink on YARN/K8s）部署，而非本地 mini-cluster
+- 独立 Flink 集群（Flink on YARN/K8s）替换容器内 mini-cluster，挂载 Flink WebUI
 - CEP 超时部分匹配告警（`within` 到期未成对）
+- Checkpoint 持久化到文件系统，支持作业从 checkpoint 恢复

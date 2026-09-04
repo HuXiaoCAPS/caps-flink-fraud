@@ -14,6 +14,7 @@ function initChart(id) {
 const trendChart = initChart('chart-trend');
 const cityChart = initChart('chart-city');
 const ruleChart = initChart('chart-rules');
+const latencyChart = initChart('chart-latency');
 
 function updateStats(stats) {
   document.getElementById('c-total').textContent = stats.total;
@@ -77,20 +78,76 @@ function updateTable(alerts) {
     </tr>`).join('');
 }
 
+function updateLatency(data) {
+  const s = data.stats;
+  const statText = s.count
+    ? `均值 ${s.mean}s | P50 ${s.p50}s | P95 ${s.p95}s | P99 ${s.p99}s（样本 ${s.count}）`
+    : '暂无告警样本';
+  document.getElementById('latency-stats').textContent = statText;
+  latencyChart.setOption({
+    tooltip: Object.assign({ trigger: 'axis' }, darkTooltip),
+    grid: { left: 40, right: 16, top: 20, bottom: 24 },
+    xAxis: Object.assign({ type: 'category', data: data.labels, boundaryGap: false }, darkAxis),
+    yAxis: Object.assign({ type: 'value' }, darkAxis),
+    series: [{
+      name: '平均延迟(s)', type: 'line', smooth: true, symbol: 'circle', symbolSize: 4,
+      data: data.values, areaStyle: { opacity: 0.25 },
+      lineStyle: { color: '#ffa05c', width: 2 }, itemStyle: { color: '#ffa05c' },
+    }],
+  });
+}
+
+async function applyRule(overrides) {
+  const body = {
+    rule_id: 'R001',
+    rule_name: document.getElementById('r-name').value || '连续大额交易',
+    rule_type: 'CONSECUTIVE_HIGH_AMOUNT',
+    threshold: parseFloat(document.getElementById('r-threshold').value) || 900,
+    window_ms: (parseInt(document.getElementById('r-window').value, 10) || 30) * 1000,
+    enabled: document.getElementById('r-enabled').checked,
+  };
+  Object.assign(body, overrides);
+  try {
+    const res = await fetch('/api/rule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const r = data.rule;
+      const state = r.enabled ? '启用' : '停用';
+      document.getElementById('rule-status').textContent =
+        `已${state}：${r.rule_name} 阈值=${r.threshold}元 窗口=${r.window_ms / 1000}s` +
+        ` v${r.version} @ ${new Date().toLocaleTimeString()}（等待广播生效...）`;
+    } else {
+      document.getElementById('rule-status').textContent = '发送失败: ' + JSON.stringify(data);
+    }
+  } catch (e) {
+    document.getElementById('rule-status').textContent = '发送异常: ' + e.message;
+  }
+}
+
+document.getElementById('btn-apply').addEventListener('click', () => applyRule({}));
+document.getElementById('btn-disable').addEventListener('click', () => applyRule({ enabled: false }));
+document.getElementById('btn-enable').addEventListener('click', () => applyRule({ enabled: true }));
+
 async function refresh() {
   try {
-    const [stats, trend, cities, rules, latest] = await Promise.all([
+    const [stats, trend, cities, rules, latest, latency] = await Promise.all([
       fetch('/api/stats').then(r => r.json()),
       fetch('/api/trend').then(r => r.json()),
       fetch('/api/cities').then(r => r.json()),
       fetch('/api/rules').then(r => r.json()),
       fetch('/api/latest').then(r => r.json()),
+      fetch('/api/latency').then(r => r.json()),
     ]);
     updateStats(stats);
     updateTrend(trend);
     updateCities(cities);
     updateRules(rules);
     updateTable(latest);
+    updateLatency(latency);
   } catch (e) {
     console.error('刷新失败', e);
   }
@@ -102,4 +159,5 @@ window.addEventListener('resize', () => {
   trendChart.resize();
   cityChart.resize();
   ruleChart.resize();
+  latencyChart.resize();
 });

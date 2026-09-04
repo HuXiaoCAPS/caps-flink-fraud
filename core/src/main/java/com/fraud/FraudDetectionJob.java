@@ -1,6 +1,10 @@
 package com.fraud;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.doris.flink.cfg.DorisExecutionOptions;
+import org.apache.doris.flink.cfg.DorisOptions;
+import org.apache.doris.flink.sink.DorisSink;
+import org.apache.doris.flink.sink.writer.serializer.SimpleStringSerializer;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
@@ -9,9 +13,6 @@ import org.apache.flink.cep.PatternSelectFunction;
 import org.apache.flink.cep.PatternStream;
 import org.apache.flink.cep.nfa.aftermatch.AfterMatchSkipStrategy;
 import org.apache.flink.cep.pattern.Pattern;
-import org.apache.flink.connector.jdbc.JdbcConnectionOptions;
-import org.apache.flink.connector.jdbc.JdbcExecutionOptions;
-import org.apache.flink.connector.jdbc.JdbcSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.BroadcastStream;
@@ -21,6 +22,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.time.Time;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -42,7 +44,9 @@ import java.util.Map;
  */
 public class FraudDetectionJob {
 
-    private static final String KAFKA_BOOTSTRAP = "localhost:9092";
+    /** 支持双模式部署：容器内(compose 网络)用服务名，本机调试用 localhost */
+    private static final String KAFKA_BOOTSTRAP =
+            System.getenv().getOrDefault("KAFKA_BOOTSTRAP", "localhost:9092");
     private static final String ORDER_TOPIC = "order_topic";
     private static final String RULE_TOPIC = "rule_topic";
     private static final String ORDER_GROUP = "fraud-detection";
@@ -51,17 +55,11 @@ public class FraudDetectionJob {
     /** CEP 宽匹配窗口上限：所有规则的 window_ms 不得超过该值 */
     private static final long MAX_WINDOW_SECONDS = 120;
 
-    private static final String DORIS_JDBC_URL =
-            "jdbc:mysql://localhost:9030/risk?useUnicode=true&characterEncoding=utf8"
-                    + "&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai";
+    private static final String DORIS_FE_NODES =
+            System.getenv().getOrDefault("DORIS_FE_NODES", "127.0.0.1:8030");
     private static final String DORIS_USER = "root";
     private static final String DORIS_PASSWORD = "";
-
-    private static final String INSERT_SQL =
-            "INSERT INTO risk.dws_risk_result"
-                    + " (rule_id, rule_name, user_id, order_ids, total_amount, city,"
-                    + "  risk_type, window_start, window_end, trigger_time, detail)"
-                    + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    private static final String DORIS_TABLE = "risk.dws_risk_result";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -145,30 +143,33 @@ public class FraudDetectionJob {
 
         alerts.print();
 
-        // ============ 5. 命中的告警写入 Doris ============
-        alerts.sinkTo(JdbcSink.<RiskAlert>builder()
-                .withExecutionOptions(JdbcExecutionOptions.builder()
-                        .withBatchSize(1)
+        // ============ 5. 命中的告警写入 Doris（Stream Load + 唯一键幂等去重） ============
+        // SimpleStringSerializer 走 CSV 格式，按表列序输出 tab 分隔行
+        DataStream<String> alertCsv = alerts.map(alert -> String.join("\t",
+                alert.getRuleId(),
+                alert.getUserId(),
+                alert.getWindowStart(),
+                alert.getRuleName(),
+                alert.getOrderIds(),
+                String.valueOf(alert.getTotalAmount()),
+                alert.getCity(),
+                alert.getRiskType(),
+                alert.getWindowEnd(),
+                alert.getTriggerTime(),
+                alert.getDetail()));
+
+        alertCsv.sinkTo(DorisSink.<String>builder()
+                .setDorisOptions(DorisOptions.builder()
+                        .setFenodes(DORIS_FE_NODES)
+                        .setUsername(DORIS_USER)
+                        .setPassword(DORIS_PASSWORD)
+                        .setTableIdentifier(DORIS_TABLE)
                         .build())
-                .withQueryStatement(INSERT_SQL, (ps, alert) -> {
-                    ps.setString(1, alert.getRuleId());
-                    ps.setString(2, alert.getRuleName());
-                    ps.setString(3, alert.getUserId());
-                    ps.setString(4, alert.getOrderIds());
-                    ps.setDouble(5, alert.getTotalAmount());
-                    ps.setString(6, alert.getCity());
-                    ps.setString(7, alert.getRiskType());
-                    ps.setString(8, alert.getWindowStart());
-                    ps.setString(9, alert.getWindowEnd());
-                    ps.setString(10, alert.getTriggerTime());
-                    ps.setString(11, alert.getDetail());
-                })
-                .buildAtLeastOnce(new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
-                        .withUrl(DORIS_JDBC_URL)
-                        .withDriverName("com.mysql.cj.jdbc.Driver")
-                        .withUsername(DORIS_USER)
-                        .withPassword(DORIS_PASSWORD)
-                        .build()));
+                .setDorisExecutionOptions(DorisExecutionOptions.builder()
+                        .setDeletable(false)  // 不追加 __DORIS_DELETE__ 隐藏列
+                        .build())
+                .setSerializer(new SimpleStringSerializer())
+                .build());
 
         env.execute("Fraud Detection Job");
     }

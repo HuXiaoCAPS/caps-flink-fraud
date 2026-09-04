@@ -40,17 +40,17 @@
             <artifactId>flink-connector-kafka</artifactId>
             <version>3.4.0-1.20</version>
         </dependency>
-        <!-- JDBC 连接器（写 Doris） -->
+        <!-- Sink/Source 基础设施（AsyncSinkWriter、RecordEmitter 等） -->
         <dependency>
             <groupId>org.apache.flink</groupId>
-            <artifactId>flink-connector-jdbc</artifactId>
-            <version>3.4.0-1.20</version>
+            <artifactId>flink-connector-base</artifactId>
+            <version>${flink.version}</version>
         </dependency>
-        <!-- MySQL/Doris 驱动 -->
+        <!-- Doris 官方连接器（Stream Load，支持唯一键幂等） -->
         <dependency>
-            <groupId>com.mysql</groupId>
-            <artifactId>mysql-connector-j</artifactId>
-            <version>8.4.0</version>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>flink-doris-connector-1.20</artifactId>
+            <version>24.0.1</version>
         </dependency>
         <!-- JSON 反序列化（规则、交易） -->
         <dependency>

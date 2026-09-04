@@ -23,6 +23,29 @@
 
   <section class="charts">
     <div class="panel">
+      <h2>规则管理（热更新，无需重启作业）</h2>
+      <div class="rule-form">
+        <label>阈值(元)<input type="number" id="r-threshold" value="900" min="1" step="50"></label>
+        <label>窗口(秒)<input type="number" id="r-window" value="30" min="1" max="120"></label>
+        <label>规则名<input type="text" id="r-name" value="连续大额交易"></label>
+        <label>启用<input type="checkbox" id="r-enabled" checked></label>
+        <div class="rule-btns">
+          <button id="btn-apply" class="primary">更新规则</button>
+          <button id="btn-disable">停用</button>
+          <button id="btn-enable">启用</button>
+        </div>
+      </div>
+      <div class="rule-status" id="rule-status">当前规则：-</div>
+    </div>
+    <div class="panel">
+      <h2>告警端到端延迟（近 30 分钟）</h2>
+      <div class="latency-stats" id="latency-stats">均值 - | P50 - | P95 - | P99 -</div>
+      <div id="chart-latency" class="chart"></div>
+    </div>
+  </section>
+
+  <section class="charts">
+    <div class="panel">
       <h2>告警趋势（近 30 分钟）</h2>
       <div id="chart-trend" class="chart"></div>
     </div>

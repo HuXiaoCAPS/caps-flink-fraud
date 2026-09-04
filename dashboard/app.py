@@ -8,7 +8,7 @@
 from datetime import datetime, timedelta
 
 import pymysql
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
 
@@ -16,6 +16,11 @@ DORIS = dict(host="localhost", port=9030, user="root", password="",
              database="risk", connect_timeout=5)
 
 ALERTS_TABLE = "risk.dws_risk_result"
+
+# ---- 规则管理（发送到 Kafka rule_topic，供 Flink 广播状态热更新） ----
+KAFKA_BOOTSTRAP = "localhost:9092"
+RULE_TOPIC = "rule_topic"
+_rule_versions = {}
 
 
 def fetch(sql, args=None):
@@ -119,6 +124,76 @@ def api_latest():
                  "city, risk_type, trigger_time, detail FROM " + ALERTS_TABLE
                  + " ORDER BY id DESC LIMIT 20")
     return jsonify(rows)
+
+
+def _latency_series(since):
+    rows = fetch("SELECT window_end, trigger_time FROM " + ALERTS_TABLE
+                 + " WHERE trigger_time >= %s", (since,))
+    out = []
+    for r in rows:
+        wt = datetime.strptime(r["window_end"], "%Y-%m-%d %H:%M:%S")
+        tt = datetime.strptime(r["trigger_time"], "%Y-%m-%d %H:%M:%S")
+        lat = (tt - wt).total_seconds()
+        if lat >= 0:
+            out.append((tt, lat))
+    return out
+
+
+@app.route("/api/latency")
+def api_latency():
+    """端到端延迟：告警 trigger_time - 第二笔交易事件时间(window_end)。"""
+    now = datetime.now()
+    lats = [l for _, l in _latency_series(now - timedelta(hours=1))]
+    stats = {}
+    if lats:
+        s = sorted(lats)
+        n = len(s)
+        stats = {"count": n, "mean": round(sum(lats) / n, 1),
+                 "p50": round(s[int(n * 0.5)], 1), "p95": round(s[int(n * 0.95)], 1),
+                 "p99": round(s[int(n * 0.99)], 1)}
+    # 近 30 分钟每分钟平均延迟
+    buckets = {}
+    for tt, lat in _latency_series(now - timedelta(minutes=30)):
+        buckets.setdefault(tt.strftime("%H:%M"), []).append(lat)
+    labels, values = [], []
+    t = (now - timedelta(minutes=30)).replace(second=0, microsecond=0)
+    while t <= now:
+        key = t.strftime("%H:%M")
+        labels.append(key)
+        arr = buckets.get(key, [])
+        values.append(round(sum(arr) / len(arr), 1) if arr else 0)
+        t += timedelta(minutes=1)
+    return jsonify({"stats": stats, "labels": labels, "values": values})
+
+
+@app.route("/api/rule", methods=["POST"])
+def api_rule():
+    """网页端规则热更新入口：将规则发送到 rule_topic。"""
+    data = request.get_json(force=True) or {}
+    rule_id = data.get("rule_id", "R001")
+    version = _rule_versions.get(rule_id, 0) + 1
+    _rule_versions[rule_id] = version
+    rule = {
+        "rule_id": rule_id,
+        "rule_name": data.get("rule_name", "连续大额交易"),
+        "rule_type": data.get("rule_type", "CONSECUTIVE_HIGH_AMOUNT"),
+        "threshold": float(data.get("threshold", 900)),
+        "window_ms": int(data.get("window_ms", 30000)),
+        "enabled": bool(data.get("enabled", True)),
+        "version": version,
+    }
+    import json
+    from kafka import KafkaProducer
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        key_serializer=str.encode,
+        value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode("utf-8"),
+        acks=1,
+    )
+    producer.send(RULE_TOPIC, key=rule["rule_id"], value=rule)
+    producer.flush()
+    producer.close(timeout=5)
+    return jsonify({"ok": True, "rule": rule})
 
 
 if __name__ == "__main__":
