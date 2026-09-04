@@ -50,12 +50,13 @@ def format_ts(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
-def gen_event(user_id: str, seq: int, ts_ms: int, city: str, amount: float, label: str) -> dict:
+def gen_event(user_id: str, seq: int, ts_ms: int, city: str, amount: float, label: str,
+              ip: str = None) -> dict:
     return {
         "order_id": f"o_{user_id}_{seq}",
         "user_id": user_id,
         "amount": round(amount, 2),
-        "ip": random_ip(city),
+        "ip": ip or random_ip(city),
         "city": city,
         "channel": random.choice(CHANNELS),
         "merchant": random.choice(MERCHANTS),
@@ -81,17 +82,49 @@ class TransactionSimulator:
         return self.seq[user_id]
 
     def schedule_burst(self, now: float):
-        """随机选一名用户，在未来 0.2~1.2 秒内连续发送 2~3 笔大额交易。"""
+        """随机选一名用户，在未来 0.2~1.2 秒内连续发送 2~3 笔大额交易（同城同 IP）。"""
         user_id = "u_" + fake.uuid4()[:8]
         city = random.choice(CITIES)
+        ip = random_ip(city)
         ts_ms = int(now * 1000)
         count = random.randint(2, 3)
         for i in range(count):
             ev = gen_event(user_id, self.next_seq(user_id), ts_ms, city,
-                           random.uniform(*ANOMALY_AMOUNT_RANGE), "VELOCITY_BURST")
+                           random.uniform(*ANOMALY_AMOUNT_RANGE), "VELOCITY_BURST", ip)
             self.pending.append((now + random.uniform(0.2, 1.2), ev))
             ts_ms += random.randint(300, 1200)
             self.stats["anomaly"] += 1
+        self.stats["burst"] += 1
+
+    def schedule_ip_change(self, now: float):
+        """同用户在不同城市/IP 连续两笔交易（IP 切换异常，跨城市必异 IP）。"""
+        user_id = "u_" + fake.uuid4()[:8]
+        city1 = random.choice(CITIES)
+        city2 = random.choice([c for c in CITIES if c != city1])
+        ts_ms = int(now * 1000)
+        for city in (city1, city2):
+            ev = gen_event(user_id, self.next_seq(user_id), ts_ms, city,
+                           random.uniform(*NORMAL_AMOUNT_RANGE), "IP_CHANGE",
+                           random_ip(city))
+            self.pending.append((now + random.uniform(0.2, 1.2), ev))
+            ts_ms += random.randint(300, 1200)
+            self.stats["anomaly"] += 1
+        self.stats["burst"] += 1
+
+    def schedule_sequence(self, now: float):
+        """小额试探 -> 大额交易（SEQUENCE_SMALL_LARGE 规则用，同城同 IP）。"""
+        user_id = "u_" + fake.uuid4()[:8]
+        city = random.choice(CITIES)
+        ip = random_ip(city)
+        ts_ms = int(now * 1000)
+        small = gen_event(user_id, self.next_seq(user_id), ts_ms, city,
+                          random.uniform(10, 300), "SEQUENCE_SMALL_LARGE", ip)
+        self.pending.append((now + random.uniform(0.3, 1.0), small))
+        ts_ms += random.randint(500, 2000)
+        large = gen_event(user_id, self.next_seq(user_id), ts_ms, city,
+                          random.uniform(1500, 6000), "SEQUENCE_SMALL_LARGE", ip)
+        self.pending.append((now + random.uniform(0.3, 1.0), large))
+        self.stats["anomaly"] += 2
         self.stats["burst"] += 1
 
     def tick(self, now: float) -> list:
@@ -169,7 +202,13 @@ def main():
                 producer.send(ORDER_TOPIC, key=ev["user_id"], value=ev)
 
             if now >= next_burst_at:
-                sim.schedule_burst(now)
+                r = random.random()
+                if r < 0.35:
+                    sim.schedule_ip_change(now)
+                elif r < 0.65:
+                    sim.schedule_sequence(now)
+                else:
+                    sim.schedule_burst(now)
                 next_burst_at = now + random.uniform(burst_lo, burst_hi)
                 producer.flush()
 

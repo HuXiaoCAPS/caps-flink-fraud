@@ -13,6 +13,7 @@ import org.apache.flink.cep.PatternSelectFunction;
 import org.apache.flink.cep.PatternStream;
 import org.apache.flink.cep.nfa.aftermatch.AfterMatchSkipStrategy;
 import org.apache.flink.cep.pattern.Pattern;
+import org.apache.flink.cep.pattern.conditions.IterativeCondition;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.BroadcastStream;
@@ -111,9 +112,78 @@ public class FraudDetectionJob {
                         candidate.setOrderIds(first.getOrderId() + "," + second.getOrderId());
                         candidate.setTotalAmount(first.getAmount() + second.getAmount());
                         candidate.setCity(first.getCity());
-                        candidate.setRiskType("CONSECUTIVE_HIGH_AMOUNT");
+                        candidate.setRiskType("PAIR");
                         candidate.setFirstAmount(first.getAmount());
                         candidate.setSecondAmount(second.getAmount());
+                        candidate.setWindowStartTs(first.getEventTs());
+                        candidate.setWindowEndTs(second.getEventTs());
+                        return candidate;
+                    }
+                });
+
+        // 连续三笔 CEP（HIGH_FREQUENCY 规则用）
+        Pattern<Transaction, Transaction> triplePattern = Pattern
+                .<Transaction>begin("t1", AfterMatchSkipStrategy.skipPastLastEvent())
+                .next("t2")
+                .next("t3")
+                .within(Time.seconds(MAX_WINDOW_SECONDS));
+
+        DataStream<RiskAlert> tripleCandidates = CEP.pattern(keyed, triplePattern).select(
+                new PatternSelectFunction<Transaction, RiskAlert>() {
+                    @Override
+                    public RiskAlert select(Map<String, List<Transaction>> match) {
+                        Transaction t1 = match.get("t1").get(0);
+                        Transaction t2 = match.get("t2").get(0);
+                        Transaction t3 = match.get("t3").get(0);
+
+                        RiskAlert candidate = new RiskAlert();
+                        candidate.setUserId(t1.getUserId());
+                        candidate.setOrderIds(t1.getOrderId() + "," + t2.getOrderId() + "," + t3.getOrderId());
+                        candidate.setTotalAmount(t1.getAmount() + t2.getAmount() + t3.getAmount());
+                        candidate.setCity(t1.getCity());
+                        candidate.setRiskType("TRIPLE");
+                        candidate.setFirstAmount(t1.getAmount());
+                        candidate.setSecondAmount(t2.getAmount());
+                        candidate.setThirdAmount(t3.getAmount());
+                        candidate.setWindowStartTs(t1.getEventTs());
+                        candidate.setWindowEndTs(t3.getEventTs());
+                        return candidate;
+                    }
+                });
+
+        // IP 切换 CEP（同用户两笔交易、IP 不同）
+        Pattern<Transaction, Transaction> ipPattern = Pattern
+                .<Transaction>begin("first", AfterMatchSkipStrategy.skipPastLastEvent())
+                .next("second")
+                .where(new IterativeCondition<Transaction>() {
+                    @Override
+                    public boolean filter(Transaction second,
+                                          Context<Transaction> ctx) throws Exception {
+                        Iterable<Transaction> firsts = ctx.getEventsForPattern("first");
+                        java.util.Iterator<Transaction> it = firsts.iterator();
+                        return it.hasNext()
+                                && !it.next().getIp().equals(second.getIp());
+                    }
+                })
+                .within(Time.seconds(MAX_WINDOW_SECONDS));
+
+        DataStream<RiskAlert> ipCandidates = CEP.pattern(keyed, ipPattern).select(
+                new PatternSelectFunction<Transaction, RiskAlert>() {
+                    @Override
+                    public RiskAlert select(Map<String, List<Transaction>> match) {
+                        Transaction first = match.get("first").get(0);
+                        Transaction second = match.get("second").get(0);
+
+                        RiskAlert candidate = new RiskAlert();
+                        candidate.setUserId(first.getUserId());
+                        candidate.setOrderIds(first.getOrderId() + "," + second.getOrderId());
+                        candidate.setTotalAmount(first.getAmount() + second.getAmount());
+                        candidate.setCity(first.getCity());
+                        candidate.setRiskType("IP_CHANGE");
+                        candidate.setFirstAmount(first.getAmount());
+                        candidate.setSecondAmount(second.getAmount());
+                        candidate.setFirstIp(first.getIp());
+                        candidate.setSecondIp(second.getIp());
                         candidate.setWindowStartTs(first.getEventTs());
                         candidate.setWindowEndTs(second.getEventTs());
                         return candidate;
@@ -127,7 +197,7 @@ public class FraudDetectionJob {
             candidate.setOrderIds(tx.getOrderId());
             candidate.setTotalAmount(tx.getAmount());
             candidate.setCity(tx.getCity());
-            candidate.setRiskType("SINGLE_HIGH_AMOUNT");
+            candidate.setRiskType("SINGLE");
             candidate.setFirstAmount(tx.getAmount());
             candidate.setSecondAmount(0);
             candidate.setWindowStartTs(tx.getEventTs());
@@ -135,7 +205,8 @@ public class FraudDetectionJob {
             return candidate;
         });
 
-        DataStream<RiskAlert> candidates = pairCandidates.union(singleCandidates);
+        DataStream<RiskAlert> candidates = pairCandidates
+                .union(tripleCandidates, ipCandidates, singleCandidates);
 
         // ============ 3. 规则流：Kafka(rule_topic) -> Broadcast State ============
         KafkaSource<String> ruleSource = KafkaSource.<String>builder()

@@ -227,6 +227,9 @@ def api_rule():
         "enabled": bool(data.get("enabled", RULE_STORE[rule_id].get("enabled", True))),
         "version": version,
         "weight": float(data.get("weight", RULE_STORE[rule_id].get("weight", 0.5))),
+        "count": int(data.get("count", RULE_STORE[rule_id].get("count", 3))),
+        "small_threshold": float(data.get("small_threshold",
+                                          RULE_STORE[rule_id].get("small_threshold", 0))),
     }
     import json
     from kafka import KafkaProducer

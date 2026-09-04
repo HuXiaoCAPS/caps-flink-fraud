@@ -23,6 +23,9 @@ public class RiskAlert {
     // CEP 候选匹配的原始信息，供 DynamicRuleProcessor 按最新规则判定
     private double firstAmount;
     private double secondAmount;
+    private double thirdAmount;
+    private String firstIp;
+    private String secondIp;
     private long windowStartTs;
     private long windowEndTs;
 
@@ -139,6 +142,30 @@ public class RiskAlert {
 
     public void setSecondAmount(double secondAmount) {
         this.secondAmount = secondAmount;
+    }
+
+    public double getThirdAmount() {
+        return thirdAmount;
+    }
+
+    public void setThirdAmount(double thirdAmount) {
+        this.thirdAmount = thirdAmount;
+    }
+
+    public String getFirstIp() {
+        return firstIp;
+    }
+
+    public void setFirstIp(String firstIp) {
+        this.firstIp = firstIp;
+    }
+
+    public String getSecondIp() {
+        return secondIp;
+    }
+
+    public void setSecondIp(String secondIp) {
+        this.secondIp = secondIp;
     }
 
     public long getWindowStartTs() {

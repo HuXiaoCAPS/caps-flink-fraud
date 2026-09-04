@@ -37,6 +37,14 @@ public class Rule implements Serializable {
     @JsonProperty("weight")
     private double weight = 0.5;
 
+    /** 高频交易所需笔数（HIGH_FREQUENCY 规则用，CEP 上限为 3） */
+    @JsonProperty("count")
+    private int count = 3;
+
+    /** 序列模式的小额阈值（SEQUENCE_SMALL_LARGE 规则用，大额阈值用 threshold） */
+    @JsonProperty("small_threshold")
+    private double smallThreshold = 0;
+
     public Rule() {
     }
 
@@ -102,6 +110,22 @@ public class Rule implements Serializable {
 
     public void setWeight(double weight) {
         this.weight = weight;
+    }
+
+    public int getCount() {
+        return count;
+    }
+
+    public void setCount(int count) {
+        this.count = count;
+    }
+
+    public double getSmallThreshold() {
+        return smallThreshold;
+    }
+
+    public void setSmallThreshold(double smallThreshold) {
+        this.smallThreshold = smallThreshold;
     }
 
     @Override

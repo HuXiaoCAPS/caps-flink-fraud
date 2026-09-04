@@ -30,6 +30,8 @@ def build_rule(args) -> dict:
         "enabled": not args.disable,
         "version": args.version,
         "weight": args.weight,
+        "count": args.count,
+        "small_threshold": args.small_threshold,
     }
 
 
@@ -42,6 +44,9 @@ def main():
     parser.add_argument("--window-ms", type=int, default=30000)
     parser.add_argument("--disable", action="store_true", help="停用规则")
     parser.add_argument("--weight", type=float, default=0.5, help="规则权重(风险评分)")
+    parser.add_argument("--count", type=int, default=3, help="高频交易所需笔数(HIGH_FREQUENCY)")
+    parser.add_argument("--small-threshold", type=float, default=0.0,
+                        help="序列规则的小额阈值(SEQUENCE_SMALL_LARGE)")
     parser.add_argument("--version", type=int, default=2)
     args = parser.parse_args()
 
