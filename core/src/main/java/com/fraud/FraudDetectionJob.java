@@ -9,6 +9,8 @@ import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.cep.CEP;
+import org.apache.flink.cep.PatternFlatSelectFunction;
+import org.apache.flink.cep.PatternFlatTimeoutFunction;
 import org.apache.flink.cep.PatternSelectFunction;
 import org.apache.flink.cep.PatternStream;
 import org.apache.flink.cep.nfa.aftermatch.AfterMatchSkipStrategy;
@@ -19,8 +21,11 @@ import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsIni
 import org.apache.flink.streaming.api.datastream.BroadcastStream;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.time.Time;
+import org.apache.flink.util.Collector;
+import org.apache.flink.util.OutputTag;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -205,8 +210,52 @@ public class FraudDetectionJob {
             return candidate;
         });
 
+        // 超时告警 CEP：单笔交易无后续交易，within 到期走超时侧输出
+        OutputTag<RiskAlert> timeoutTag = new OutputTag<RiskAlert>("timeout-alerts") {
+        };
+        Pattern<Transaction, Transaction> timeoutPattern = Pattern
+                .<Transaction>begin("first")
+                .next("second")
+                .within(Time.seconds(MAX_WINDOW_SECONDS));
+
+        SingleOutputStreamOperator<RiskAlert> timeoutMain = CEP.pattern(keyed, timeoutPattern)
+                .flatSelect(timeoutTag,
+                        new PatternFlatTimeoutFunction<Transaction, RiskAlert>() {
+                            @Override
+                            public void timeout(Map<String, List<Transaction>> partial,
+                                                long timestamp,
+                                                Collector<RiskAlert> out) throws Exception {
+                                List<Transaction> firsts = partial.get("first");
+                                if (firsts == null || firsts.isEmpty()) {
+                                    return;
+                                }
+                                Transaction first = firsts.get(0);
+                                RiskAlert candidate = new RiskAlert();
+                                candidate.setUserId(first.getUserId());
+                                candidate.setOrderIds(first.getOrderId());
+                                candidate.setTotalAmount(first.getAmount());
+                                candidate.setCity(first.getCity());
+                                candidate.setRiskType("TIMEOUT");
+                                candidate.setFirstAmount(first.getAmount());
+                                candidate.setSecondAmount(0);
+                                candidate.setWindowStartTs(first.getEventTs());
+                                candidate.setWindowEndTs(first.getEventTs()
+                                        + MAX_WINDOW_SECONDS * 1000);
+                                out.collect(candidate);
+                            }
+                        },
+                        new PatternFlatSelectFunction<Transaction, RiskAlert>() {
+                            @Override
+                            public void flatSelect(Map<String, List<Transaction>> match,
+                                                   Collector<RiskAlert> out) {
+                                // 有后续交易的完整匹配由其他模式处理，此处不输出
+                            }
+                        });
+
+        DataStream<RiskAlert> timeoutCandidates = timeoutMain.getSideOutput(timeoutTag);
+
         DataStream<RiskAlert> candidates = pairCandidates
-                .union(tripleCandidates, ipCandidates, singleCandidates);
+                .union(tripleCandidates, ipCandidates, singleCandidates, timeoutCandidates);
 
         // ============ 3. 规则流：Kafka(rule_topic) -> Broadcast State ============
         KafkaSource<String> ruleSource = KafkaSource.<String>builder()

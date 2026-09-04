@@ -97,6 +97,10 @@ public class DynamicRuleProcessor
             case "IP_CHANGE":
                 return "IP_CHANGE".equals(candidate.getRiskType())
                         && span(candidate) <= rule.getWindowMs();
+            case "TIMEOUT_ALERT":
+                // 单笔大额交易无后续交易，within 到期超时（窗口由 CEP 结构上限决定）
+                return "TIMEOUT".equals(candidate.getRiskType())
+                        && candidate.getFirstAmount() > rule.getThreshold();
             default:
                 return false;
         }
@@ -121,6 +125,9 @@ public class DynamicRuleProcessor
         switch (candidate.getRiskType()) {
             case "SINGLE":
                 amounts = "金额=" + candidate.getFirstAmount();
+                break;
+            case "TIMEOUT":
+                amounts = "金额=" + candidate.getFirstAmount() + " 无后续交易(超时)";
                 break;
             case "TRIPLE":
                 amounts = "金额=" + candidate.getFirstAmount() + "+"

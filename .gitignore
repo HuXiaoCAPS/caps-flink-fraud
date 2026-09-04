@@ -7,3 +7,7 @@ __pycache__/
 logs/
 core/target/
 jars/
+
+# 私有文档（内部难点记录、简历话术，不随仓库公开）
+docs/design-notes.md
+docs/resume.md

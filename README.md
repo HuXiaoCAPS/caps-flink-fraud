@@ -127,6 +127,7 @@ docker run --rm --network pyflink-cep-fraud-detection_default \
 | `SEQUENCE_SMALL_LARGE` | 连续两笔 | 首笔小额试探 + 次笔大额 |
 | `HIGH_FREQUENCY` | 连续三笔 (`next×3`) | 窗口内高频交易 |
 | `IP_CHANGE` | 迭代条件比较 IP | 窗口内 IP/城市切换 |
+| `TIMEOUT_ALERT` | `within` 超时侧输出 | 单笔大额无后续交易(超时) |
 
 规则 JSON 契约：
 
@@ -158,9 +159,3 @@ docker run --rm --network pyflink-cep-fraud-detection_default \
 - **Flink WebUI**：`http://localhost:8081`（作业 DAG、watermark、反压、checkpoint 历史）
 - **告警大屏**：`http://localhost:5001`（实时告警、趋势、城市分布、规则排行、延迟指标、网页端规则热更新）
 - **规则热更新**：大屏"规则管理"面板或 `tools/rule_producer.py`
-
-## 技术难点与后续展望
-
-开发过程中遇到的 9 个核心难点（CEP 静态化、watermark 卡死、Stream Load 网络、
-唯一键隐藏列、集群槽位等）与解决方案，以及后续扩展方向，
-详见 **[docs/design-notes.md](docs/design-notes.md)**。
