@@ -14,7 +14,7 @@ Kafka ──交易流──▶ Java Flink 作业 ──告警──▶ Doris ─
 
 | 层 | 技术 | 说明 |
 |---|---|---|
-| 流计算核心 | **Java + Flink 1.20 + Flink CEP** | DataStream API，容器化部署（compose 网络） |
+| 流计算核心 | **Java + Flink 1.20 + Flink CEP** | DataStream API，独立 Standalone 集群（compose 网络，WebUI:8081） |
 | 消息队列 | Apache Kafka 3.7 (KRaft) | Docker 部署，双监听（host 9092 + 容器内 9094） |
 | 数据存储 | Apache Doris 2.1.11 (FE+BE) | 告警表 `risk.dws_risk_result`（UNIQUE KEY 幂等去重） |
 | Doris 写入 | 官方 `flink-doris-connector`（Stream Load） | 替换 JDBC，生产级导入路径 |
@@ -73,18 +73,24 @@ mvn -f core/pom.xml package
 .venv/bin/python tools/mock_producer.py --rate 3
 ```
 
-### 3. 构建并启动 Flink 作业（容器化，与 Kafka/Doris 同网络）
+### 3. 构建并启动 Flink Standalone 集群，提交作业
 
 ```bash
+# 启动集群（JobManager + TaskManager，WebUI: http://localhost:8081）
+docker compose up -d flink-jobmanager flink-taskmanager
+
+# 构建作业 jar 并向集群提交
 mvn -f core/pom.xml package
-docker build -f core/Dockerfile -t caps-fraud-job core/
-docker run -d --name fraud-job \
-    --network pyflink-cep-fraud-detection_default \
-    caps-fraud-job
+docker run --rm --network pyflink-cep-fraud-detection_default \
+    -v $(pwd)/core/target:/app \
+    -e KAFKA_BOOTSTRAP=kafka:9094 -e DORIS_FE_NODES=doris-fe:8030 \
+    flink:1.20.0 \
+    /opt/flink/bin/flink run -d -m flink-jobmanager:8081 \
+        -c com.fraud.FraudDetectionJob /app/flink-fraud-detection-core-1.0.0.jar
 ```
 
-> 作业运行在 compose 网络内，可通过服务名访问 Kafka(`kafka:9094`)/Doris(`doris-fe:8030`)。
-> 本机调试也可用 `java -jar core/target/...jar`（环境变量默认走 localhost）。
+> 作业运行在独立集群上，Flink WebUI 可查看 DAG / watermark / 反压 / checkpoint。
+> 本机调试也可用 `java -jar core/target/...jar` 起本地 mini-cluster（环境变量默认走 localhost）。
 
 ### 4. 下发初始规则（广播状态为空时不会有告警）
 
@@ -185,8 +191,7 @@ docker run -d --name fraud-job \
 ## 后续展望（简历可写方向）
 
 - 开启 flink-doris-connector 的 **2PC**（两阶段提交），从"唯一键幂等"升级为事务级 exactly-once
-- 多规则支持：同一类型规则可配置多条阈值梯度
 - 规则版本管理与灰度（`version` 字段已预留）
-- 独立 Flink 集群（Flink on YARN/K8s）替换容器内 mini-cluster，挂载 Flink WebUI
+- Flink on YARN/K8s 部署 + 高可用（HA、多 JobManager）
 - CEP 超时部分匹配告警（`within` 到期未成对）
 - Checkpoint 持久化到文件系统，支持作业从 checkpoint 恢复

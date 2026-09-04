@@ -65,6 +65,36 @@ services:
     depends_on:
       - doris-fe
 
+  # ---- 独立 Flink Standalone 集群（WebUI: localhost:8081）----
+  flink-jobmanager:
+    image: flink:1.20.0
+    container_name: flink-jobmanager
+    command: jobmanager
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+      - "6123:6123"
+    environment:
+      JOB_MANAGER_MEMORY: "1024m"
+      FLINK_PROPERTIES: "jobmanager.rpc.address: flink-jobmanager"
+    networks:
+      default:
+        ipv4_address: 172.28.0.20
+
+  flink-taskmanager:
+    image: flink:1.20.0
+    container_name: flink-taskmanager
+    command: taskmanager
+    restart: unless-stopped
+    environment:
+      TASK_MANAGER_MEMORY: "2048m"
+      FLINK_PROPERTIES: "jobmanager.rpc.address: flink-jobmanager"
+    networks:
+      default:
+        ipv4_address: 172.28.0.21
+    depends_on:
+      - flink-jobmanager
+
 volumes:
   doris_fe:
   doris_be:
