@@ -14,7 +14,7 @@ Kafka ──交易流──▶ Java Flink 作业 ──告警──▶ Doris ─
 
 | 层 | 技术 | 说明 |
 |---|---|---|
-| 流计算核心 | **Java + Flink 1.20 + Flink CEP** | DataStream API，独立 Standalone 集群（compose 网络，WebUI:8081） |
+| 流计算核心 | **Flink 1.20 CEP（Java编写）** | DataStream API，独立 Standalone 集群（compose 网络，WebUI:8081） |
 | 消息队列 | Apache Kafka 3.7 (KRaft) | Docker 部署，双监听（host 9092 + 容器内 9094） |
 | 数据存储 | Apache Doris 2.1.11 (FE+BE) | 告警表 `risk.dws_risk_result`（UNIQUE KEY 幂等去重） |
 | Doris 写入 | 官方 `flink-doris-connector`（Stream Load） | 替换 JDBC，生产级导入路径 |
