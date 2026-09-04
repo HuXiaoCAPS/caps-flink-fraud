@@ -1,0 +1,79 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #0b1220;
+  color: #e6edf3;
+  padding: 20px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+header h1 {
+  font-size: 24px;
+  letter-spacing: 1px;
+  color: #4da3ff;
+}
+header .sub { color: #7d8ca0; font-size: 13px; }
+header .updated { margin-left: auto; color: #9ab; font-size: 14px; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.card {
+  background: #131c2e;
+  border: 1px solid #1f2b41;
+  border-radius: 10px;
+  padding: 18px;
+  text-align: center;
+}
+.card .num { font-size: 30px; font-weight: 700; color: #4da3ff; }
+.card .label { margin-top: 6px; color: #7d8ca0; font-size: 13px; }
+
+.charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.panel {
+  background: #131c2e;
+  border: 1px solid #1f2b41;
+  border-radius: 10px;
+  padding: 14px;
+}
+.panel h2 { font-size: 14px; color: #9ab; margin-bottom: 8px; }
+.chart { height: 280px; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+table th, table td {
+  padding: 7px 8px;
+  text-align: left;
+  border-bottom: 1px solid #1f2b41;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+table th { color: #7d8ca0; font-weight: 500; }
+table td.detail { color: #ffa05c; }
+
+.risk-tag {
+  display: inline-block;
+  background: #3d2c14;
+  color: #ffa05c;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+}

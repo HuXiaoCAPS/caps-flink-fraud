@@ -1,0 +1,76 @@
+services:
+  kafka:
+    image: apache/kafka:3.7.2
+    container_name: kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  doris-fe:
+    image: apache/doris:2.1.11-fe
+    container_name: doris-fe
+    restart: unless-stopped
+    ports:
+      - "8030:8030"
+      - "9030:9030"
+    environment:
+      JAVA_OPTS: "-Xmx1024m -Xms1024m"
+      FE_SERVERS: "fe1:172.28.0.10:9010"
+      FE_ID: "1"
+    networks:
+      default:
+        ipv4_address: 172.28.0.10
+    volumes:
+      - doris_fe:/opt/apache-doris/fe
+      - ./conf/fe.conf:/opt/apache-doris/fe/conf/fe.conf
+    depends_on:
+      - kafka
+
+  doris-be:
+    image: apache/doris:2.1.11-be
+    container_name: doris-be
+    restart: unless-stopped
+    ports:
+      - "8040:8040"
+      - "9050:9050"
+    environment:
+      JAVA_OPTS: "-Xmx1024m -Xms1024m"
+      FE_SERVERS: "fe1:172.28.0.10:9010"
+      BE_ADDR: "172.28.0.11:9050"
+    networks:
+      default:
+        ipv4_address: 172.28.0.11
+    volumes:
+      - doris_be:/opt/apache-doris/be
+      - ./conf/be.conf:/opt/apache-doris/be/conf/be.conf
+    depends_on:
+      - doris-fe
+
+volumes:
+  doris_fe:
+  doris_be:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

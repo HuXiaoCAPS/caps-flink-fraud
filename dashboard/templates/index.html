@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>实时风控告警大屏</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/echarts.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>实时风控告警大屏</h1>
+    <div class="sub">PyFlink 动态规则 · Kafka · Doris · Flink CEP · Broadcast State 热更新</div>
+    <div class="updated" id="updated">--:--:--</div>
+  </header>
+
+  <section class="cards" id="cards">
+    <div class="card"><div class="num" id="c-total">-</div><div class="label">累计告警数</div></div>
+    <div class="card"><div class="num" id="c-5m">-</div><div class="label">近 5 分钟告警</div></div>
+    <div class="card"><div class="num" id="c-1h">-</div><div class="label">近 1 小时告警</div></div>
+    <div class="card"><div class="num" id="c-rules">-</div><div class="label">生效规则数</div></div>
+  </section>
+
+  <section class="charts">
+    <div class="panel">
+      <h2>告警趋势（近 30 分钟）</h2>
+      <div id="chart-trend" class="chart"></div>
+    </div>
+    <div class="panel">
+      <h2>告警城市分布</h2>
+      <div id="chart-city" class="chart"></div>
+    </div>
+  </section>
+
+  <section class="charts">
+    <div class="panel">
+      <h2>规则触发排行</h2>
+      <div id="chart-rules" class="chart"></div>
+    </div>
+    <div class="panel">
+      <h2>最新告警</h2>
+      <table id="alert-table">
+        <thead>
+          <tr><th>时间</th><th>规则</th><th>用户</th><th>金额(元)</th><th>城市</th><th>详情</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
