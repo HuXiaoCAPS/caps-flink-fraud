@@ -20,20 +20,20 @@ from config import (DORIS_DB, DORIS_HOST, DORIS_PASSWORD, DORIS_QUERY_PORT,
 
 DDL = f"""
 CREATE TABLE IF NOT EXISTS `{DORIS_DB}`.`{DORIS_TABLE}` (
-  `id`           BIGINT NOT NULL AUTO_INCREMENT,
   `rule_id`      VARCHAR(32),
-  `rule_name`    VARCHAR(64),
   `user_id`      VARCHAR(32),
+  `window_start` DATETIME,
+  `rule_name`    VARCHAR(128),
   `order_ids`    VARCHAR(255),
   `total_amount` DECIMAL(12, 2),
   `city`         VARCHAR(32),
   `risk_type`    VARCHAR(64),
-  `window_start` DATETIME,
+  `risk_score`   DECIMAL(8, 2),
   `window_end`   DATETIME,
   `trigger_time` DATETIME,
   `detail`       VARCHAR(1024)
-) UNIQUE KEY(`id`)
-DISTRIBUTED BY HASH(`id`) BUCKETS 1
+) UNIQUE KEY(`rule_id`, `user_id`, `window_start`)
+DISTRIBUTED BY HASH(`rule_id`) BUCKETS 1
 PROPERTIES ("replication_num" = "1");
 """
 
